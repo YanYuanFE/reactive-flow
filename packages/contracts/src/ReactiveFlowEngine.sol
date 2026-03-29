@@ -71,8 +71,14 @@ contract ReactiveFlowEngine is AbstractReactive {
 
         bytes memory payload;
         if (actionType == 0) {
-            // Simple callback (Basic Demo compatible)
-            payload = abi.encodeWithSignature("callback(address)", address(0));
+            // alertCallback: topic1 = reactive contract address (for per-flow filtering)
+            payload = abi.encodeWithSignature(
+                "alertCallback(address,uint256,uint256,bytes)",
+                address(0),
+                uint256(uint160(address(this))),
+                uint256(0),
+                ""
+            );
         } else {
             // Generic callback with custom selector
             payload = abi.encodeWithSelector(

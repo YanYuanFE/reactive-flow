@@ -83,6 +83,7 @@ export default function CreateFlow() {
 
   const {
     deployFlow,
+    step: deployStep,
     txHash,
     isPending,
     isConfirming,
@@ -500,12 +501,45 @@ export default function CreateFlow() {
               )}
 
               {/* Chain indicator for deploy */}
-              {!isConfirmed && (
+              {!isConfirmed && deployStep === "idle" && (
                 <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 flex items-center gap-2">
                   <div className="size-2 rounded-full bg-blue-500 shrink-0" />
                   <p className="text-sm text-blue-700 dark:text-blue-300">
-                    Will deploy to <span className="font-medium">Reactive Lasna</span> (chain 5318007). Your wallet will be switched automatically.
+                    Two transactions: 1) Deploy contract to <span className="font-medium">Reactive Lasna</span> 2) Register flow in registry.
                   </p>
+                </div>
+              )}
+
+              {/* Deploy progress */}
+              {deployStep !== "idle" && !isConfirmed && (
+                <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 space-y-2">
+                  <div className="flex items-center gap-2">
+                    {deployStep === "deploying" || deployStep === "deploy_confirming" ? (
+                      <Loader2 className="size-4 animate-spin text-blue-600 shrink-0" />
+                    ) : (
+                      <Check className="size-4 text-emerald-600 shrink-0" />
+                    )}
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      Step 1: Deploy ReactiveFlowEngine
+                      {deployStep === "deploying" && " — confirm in wallet..."}
+                      {deployStep === "deploy_confirming" && " — confirming on chain..."}
+                      {(deployStep === "registering" || deployStep === "register_confirming") && " — done"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {deployStep === "registering" || deployStep === "register_confirming" ? (
+                      <Loader2 className="size-4 animate-spin text-blue-600 shrink-0" />
+                    ) : deployStep === "deploying" || deployStep === "deploy_confirming" ? (
+                      <div className="size-4 rounded-full border-2 border-muted-foreground/30 shrink-0" />
+                    ) : (
+                      <Check className="size-4 text-emerald-600 shrink-0" />
+                    )}
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      Step 2: Register in FlowRegistry
+                      {deployStep === "registering" && " — confirm in wallet..."}
+                      {deployStep === "register_confirming" && " — confirming on chain..."}
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -563,7 +597,7 @@ export default function CreateFlow() {
         ) : (
           <Button
             onClick={handleDeploy}
-            disabled={isSwitchingChain || isPending || isConfirming}
+            disabled={isSwitchingChain || deployStep !== "idle"}
             className="gap-2"
           >
             {isSwitchingChain ? (
@@ -571,15 +605,25 @@ export default function CreateFlow() {
                 <Loader2 className="size-4 animate-spin" />
                 Switching Chain...
               </>
-            ) : isPending ? (
+            ) : deployStep === "deploying" ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
-                Confirm in Wallet...
+                Confirm Deploy (1/2)...
               </>
-            ) : isConfirming ? (
+            ) : deployStep === "deploy_confirming" ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
-                Deploying...
+                Deploying Contract...
+              </>
+            ) : deployStep === "registering" ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Confirm Register (2/2)...
+              </>
+            ) : deployStep === "register_confirming" ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Registering Flow...
               </>
             ) : (
               "Deploy Flow"

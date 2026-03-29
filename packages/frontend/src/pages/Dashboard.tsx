@@ -3,10 +3,8 @@ import { Link } from "react-router-dom";
 import {
   Plus,
   Zap,
-  Activity,
   Layers,
   ArrowRight,
-  ExternalLink,
 } from "lucide-react";
 import { useUserFlows, type Flow } from "@/hooks/useUserFlows";
 import { SUPPORTED_CHAINS } from "@/config/contracts";
@@ -57,9 +55,7 @@ function explorerUrl(chainId: number): string {
 // ─── Flow Row Component ─────────────────────────────────────────────────────
 
 function FlowRow({ flow }: { flow: Flow }) {
-  const execCount = Number(flow.executionCount);
   const maxExec = Number(flow.maxExecutions);
-  const isActive = maxExec === 0 || execCount < maxExec;
 
   return (
     <Link
@@ -67,11 +63,7 @@ function FlowRow({ flow }: { flow: Flow }) {
       className="flex items-center justify-between gap-4 rounded-lg border p-4 hover:bg-accent transition-colors"
     >
       <div className="flex items-center gap-3 min-w-0">
-        <div
-          className={`size-2.5 shrink-0 rounded-full ${
-            isActive ? "bg-emerald-500" : "bg-muted-foreground/30"
-          }`}
-        />
+        <div className="size-2.5 shrink-0 rounded-full bg-emerald-500" />
         <div className="min-w-0">
           <p className="font-medium truncate">{flow.name}</p>
           <div className="flex items-center gap-2 mt-1">
@@ -92,12 +84,9 @@ function FlowRow({ flow }: { flow: Flow }) {
 
       <div className="flex items-center gap-3 shrink-0">
         <span className="text-sm tabular-nums text-muted-foreground">
-          {execCount}
-          {maxExec > 0 ? `/${maxExec}` : ""} exec
+          {maxExec > 0 ? `Max ${maxExec}` : "Unlimited"}
         </span>
-        <Badge variant={isActive ? "success" : "secondary"}>
-          {isActive ? "Active" : "Complete"}
-        </Badge>
+        <Badge variant="success">Active</Badge>
       </div>
     </Link>
   );
@@ -133,14 +122,9 @@ export default function Dashboard() {
 
   // ── Stats ──
 
-  const totalExecutions = flows.reduce(
-    (sum, f) => sum + Number(f.executionCount),
-    0,
-  );
-
   const activeFlows = flows.filter((f) => {
     const max = Number(f.maxExecutions);
-    return max === 0 || Number(f.executionCount) < max;
+    return max === 0; // unlimited = active
   }).length;
 
   // ── Connected ──
@@ -166,7 +150,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3 mb-2">
@@ -192,22 +176,6 @@ export default function Dashboard() {
               </span>
             </div>
             <p className="text-3xl font-bold tabular-nums">{activeFlows}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-amber-500/10">
-                <Activity className="size-5 text-amber-600" />
-              </div>
-              <span className="text-sm text-muted-foreground">
-                Total Executions
-              </span>
-            </div>
-            <p className="text-3xl font-bold tabular-nums">
-              {totalExecutions}
-            </p>
           </CardContent>
         </Card>
       </div>

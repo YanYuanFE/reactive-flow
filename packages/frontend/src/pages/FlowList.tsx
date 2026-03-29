@@ -94,14 +94,10 @@ export default function FlowList() {
                           {truncateAddress(flow.reactiveAddress)}
                         </span>
                       </span>
-                      <span>
-                        Executions:{" "}
-                        <span className="text-foreground tabular-nums">
-                          {Number(flow.executionCount)}
-                          {flow.maxExecutions > 0n
-                            ? ` / ${Number(flow.maxExecutions)}`
-                            : ""}
-                        </span>
+                      <span className="text-foreground">
+                        {flow.maxExecutions > 0n
+                          ? `Max: ${Number(flow.maxExecutions)} executions`
+                          : "Unlimited"}
                       </span>
                     </div>
                   </Link>

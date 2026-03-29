@@ -19,8 +19,8 @@ export const SYSTEM_CONTRACT =
 // ─── Deployed Contract Addresses (update after deployment) ──────────────────
 
 export const FLOW_DESTINATION_ADDRESSES: Record<number, `0x${string}`> = {
-  [SEPOLIA_CHAIN_ID]: "0x56dcB06691f37F21CbBF8Df9D6467a0536d0644f",
-  [BASE_SEPOLIA_CHAIN_ID]: "0x14C201065294464Aa74d66fAaAAcBBD726211B5e",
+  [SEPOLIA_CHAIN_ID]: "0x6A38462B4233708530f4bAc1339a7b5c16c3B635",
+  [BASE_SEPOLIA_CHAIN_ID]: "0x0B14eAdDAFA5E52a3e810E9CC27BA8721c8A971c",
 };
 
 export const FLOW_ORIGIN_ADDRESSES: Record<number, `0x${string}`> = {
@@ -360,31 +360,26 @@ export const REACTIVE_FLOW_ENGINE_ABI = [
 
 // ─── FlowRegistry ───────────────────────────────────────────────────────────
 
-export const FLOW_REGISTRY_ADDRESS = "0x29362Bf6e28884fB186Ea5B49fE50Dba463Ea578" as `0x${string}`;
+export const FLOW_REGISTRY_ADDRESS = "0x8BDE9530910d448727f098A8847197146DEbeC5E" as `0x${string}`;
 
 export const FLOW_REGISTRY_ABI = [
-  // createFlow function
   {
     type: "function",
-    name: "createFlow",
+    name: "registerFlow",
     inputs: [
+      { name: "_reactiveContract", type: "address" },
       { name: "_name", type: "string" },
       { name: "_originChainId", type: "uint256" },
       { name: "_originContract", type: "address" },
-      { name: "_topic0", type: "uint256" },
       { name: "_destinationChainId", type: "uint256" },
       { name: "_destinationContract", type: "address" },
       { name: "_conditionOp", type: "uint8" },
       { name: "_threshold", type: "uint256" },
-      { name: "_dataOffset", type: "uint8" },
       { name: "_actionType", type: "uint8" },
-      { name: "_callbackSelector", type: "bytes4" },
-      { name: "_maxExecutions", type: "uint256" },
     ],
-    outputs: [{ name: "", type: "address" }],
-    stateMutability: "payable",
+    outputs: [],
+    stateMutability: "nonpayable",
   },
-  // getUserFlows
   {
     type: "function",
     name: "getUserFlows",
@@ -409,7 +404,6 @@ export const FLOW_REGISTRY_ABI = [
     ],
     stateMutability: "view",
   },
-  // getUserFlowCount
   {
     type: "function",
     name: "getUserFlowCount",
@@ -417,7 +411,6 @@ export const FLOW_REGISTRY_ABI = [
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view",
   },
-  // getTotalFlows
   {
     type: "function",
     name: "getTotalFlows",
@@ -425,7 +418,6 @@ export const FLOW_REGISTRY_ABI = [
     outputs: [{ name: "", type: "uint256" }],
     stateMutability: "view",
   },
-  // FlowCreated event
   {
     type: "function",
     name: "allFlows",
@@ -435,7 +427,7 @@ export const FLOW_REGISTRY_ABI = [
   },
   {
     type: "event",
-    name: "FlowCreated",
+    name: "FlowRegistered",
     inputs: [
       { name: "owner", type: "address", indexed: true },
       { name: "reactiveContract", type: "address", indexed: true },

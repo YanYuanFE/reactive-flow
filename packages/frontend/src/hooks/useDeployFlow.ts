@@ -1,12 +1,17 @@
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useState, useCallback } from "react";
+import { useWalletClient, usePublicClient } from "wagmi";
+import { parseEther, encodeDeployData } from "viem";
 import {
   FLOW_REGISTRY_ADDRESS,
   FLOW_REGISTRY_ABI,
   REACTIVE_LASNA_CHAIN_ID,
 } from "@/config/contracts";
-import { parseEther, decodeEventLog } from "viem";
+import {
+  REACTIVE_FLOW_ENGINE_BYTECODE,
+  REACTIVE_FLOW_ENGINE_DEPLOY_ABI,
+} from "@/config/bytecode";
 
-// ─── Enums (mirrors of Solidity) ────────────────────────────────────────────
+// ─── Enums ─────────────────────────────────────────────────────────────────
 
 export enum ConditionOp {
   NONE = 0,
@@ -23,13 +28,11 @@ export enum ActionType {
   GENERIC_CALLBACK = 1,
 }
 
-// Re-export for backward compatibility
 export { REACTIVE_LASNA_CHAIN_ID };
 
-/** Default funding amount sent with deploy (0.1 lREACT) */
-export const DEFAULT_DEPLOY_VALUE = BigInt("100000000000000000"); // 0.1 ETH
+export const DEFAULT_DEPLOY_VALUE = BigInt("100000000000000000"); // 0.1 lREACT
 
-// ─── Deploy params interface ────────────────────────────────────────────────
+// ─── Deploy params ─────────────────────────────────────────────────────────
 
 export interface DeployFlowParams {
   name: string;
@@ -46,83 +49,127 @@ export interface DeployFlowParams {
   maxExecutions: bigint;
 }
 
-// ─── Hook ───────────────────────────────────────────────────────────────────
+export type DeployStep =
+  | "idle"
+  | "deploying"
+  | "deploy_confirming"
+  | "registering"
+  | "register_confirming"
+  | "done";
+
+// ─── Hook ──────────────────────────────────────────────────────────────────
 
 export function useDeployFlow() {
-  const {
-    writeContractAsync,
-    data: txHash,
-    isPending,
-    error,
-    reset,
-  } = useWriteContract();
+  const { data: walletClient } = useWalletClient({ chainId: REACTIVE_LASNA_CHAIN_ID });
+  const publicClient = usePublicClient({ chainId: REACTIVE_LASNA_CHAIN_ID });
 
-  const {
-    data: receipt,
-    isLoading: isConfirming,
-    isSuccess: isConfirmed,
-  } = useWaitForTransactionReceipt({ hash: txHash });
+  const [step, setStep] = useState<DeployStep>("idle");
+  const [txHash, setTxHash] = useState<`0x${string}`>();
+  const [registerTxHash, setRegisterTxHash] = useState<`0x${string}`>();
+  const [deployedAddress, setDeployedAddress] = useState<`0x${string}`>();
+  const [error, setError] = useState<Error>();
 
-  /**
-   * Deploy a new ReactiveFlowEngine contract via FlowRegistry.
-   * Calls createFlow on the registry which deploys and registers the engine.
-   */
-  async function deployFlow(params: DeployFlowParams) {
-    await writeContractAsync({
-      address: FLOW_REGISTRY_ADDRESS,
-      abi: FLOW_REGISTRY_ABI,
-      functionName: "createFlow",
-      args: [
-        params.name,
-        BigInt(params.originChainId),
-        params.originContract,
-        BigInt(params.topic0),
-        BigInt(params.destinationChainId),
-        params.destinationContract,
-        params.conditionOp,
-        params.threshold,
-        params.dataOffset,
-        params.actionType,
-        params.callbackSelector,
-        params.maxExecutions,
-      ],
-      value: parseEther("0.1"), // Fund the reactive contract
-      chainId: REACTIVE_LASNA_CHAIN_ID,
-    });
-  }
+  const reset = useCallback(() => {
+    setStep("idle");
+    setTxHash(undefined);
+    setRegisterTxHash(undefined);
+    setDeployedAddress(undefined);
+    setError(undefined);
+  }, []);
 
-  // Extract deployed address from receipt logs (FlowCreated event, topic[2] = reactiveContract)
-  let deployedAddress: `0x${string}` | undefined;
-  if (receipt?.logs) {
-    // Find the FlowCreated event log - it has 3 indexed topics (event sig, owner, reactiveContract)
-    for (const log of receipt.logs) {
-      if (log.topics.length >= 3 && log.address.toLowerCase() === FLOW_REGISTRY_ADDRESS.toLowerCase()) {
-        try {
-          const decoded = decodeEventLog({
-            abi: FLOW_REGISTRY_ABI,
-            data: log.data,
-            topics: log.topics,
-          });
-          if (decoded.eventName === "FlowCreated") {
-            deployedAddress = (decoded.args as { reactiveContract: `0x${string}` }).reactiveContract;
-            break;
-          }
-        } catch {
-          // Not the event we're looking for, skip
-        }
+  const deployFlow = useCallback(
+    async (params: DeployFlowParams) => {
+      if (!walletClient || !publicClient) {
+        setError(new Error("Wallet not connected to Reactive Lasna"));
+        return;
       }
-    }
-  }
+
+      try {
+        setError(undefined);
+
+        // Step 1: Deploy ReactiveFlowEngine directly from user's wallet (EOA)
+        setStep("deploying");
+        const deployData = encodeDeployData({
+          abi: REACTIVE_FLOW_ENGINE_DEPLOY_ABI,
+          bytecode: REACTIVE_FLOW_ENGINE_BYTECODE,
+          args: [
+            params.name,
+            BigInt(params.originChainId),
+            params.originContract,
+            BigInt(params.topic0),
+            BigInt(params.destinationChainId),
+            params.destinationContract,
+            params.conditionOp,
+            params.threshold,
+            params.dataOffset,
+            params.actionType,
+            params.callbackSelector,
+            params.maxExecutions,
+          ],
+        });
+
+        const deployHash = await walletClient.sendTransaction({
+          data: deployData,
+          value: parseEther("0.1"),
+          chain: walletClient.chain,
+        });
+        setTxHash(deployHash);
+        setStep("deploy_confirming");
+
+        const deployReceipt = await publicClient.waitForTransactionReceipt({
+          hash: deployHash,
+        });
+
+        if (!deployReceipt.contractAddress) {
+          throw new Error("Deploy failed: no contract address in receipt");
+        }
+
+        const contractAddr = deployReceipt.contractAddress;
+        setDeployedAddress(contractAddr);
+
+        // Step 2: Register in FlowRegistry
+        setStep("registering");
+        const regHash = await walletClient.writeContract({
+          address: FLOW_REGISTRY_ADDRESS,
+          abi: FLOW_REGISTRY_ABI,
+          functionName: "registerFlow",
+          args: [
+            contractAddr,
+            params.name,
+            BigInt(params.originChainId),
+            params.originContract,
+            BigInt(params.destinationChainId),
+            params.destinationContract,
+            params.conditionOp,
+            params.threshold,
+            params.actionType,
+          ],
+          chain: walletClient.chain,
+        });
+        setRegisterTxHash(regHash);
+        setStep("register_confirming");
+
+        await publicClient.waitForTransactionReceipt({ hash: regHash });
+        setStep("done");
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+        setStep("idle");
+      }
+    },
+    [walletClient, publicClient],
+  );
 
   return {
     deployFlow,
+    step,
     txHash,
-    isPending,
-    isConfirming,
-    isConfirmed,
+    registerTxHash,
     deployedAddress,
-    receipt,
     error,
     reset,
+    // Backward-compatible flags
+    isPending: step === "deploying" || step === "registering",
+    isConfirming: step === "deploy_confirming" || step === "register_confirming",
+    isConfirmed: step === "done",
   };
 }

@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.0;
 
-import './ReactiveFlowEngine.sol';
-
+/**
+ * @title FlowRegistry
+ * @notice Storage-only registry for user flows.
+ *         ReactiveFlowEngine is deployed directly by the user's wallet (EOA),
+ *         then registered here for indexing.
+ */
 contract FlowRegistry {
     struct FlowInfo {
         address reactiveContract;
@@ -17,14 +21,11 @@ contract FlowRegistry {
         uint256 createdAt;
     }
 
-    // owner => flows
     mapping(address => FlowInfo[]) public userFlows;
-    // owner => flow count
     mapping(address => uint256) public userFlowCount;
-    // all deployed reactive contracts
     address[] public allFlows;
 
-    event FlowCreated(
+    event FlowRegistered(
         address indexed owner,
         address indexed reactiveContract,
         string name,
@@ -32,39 +33,19 @@ contract FlowRegistry {
         uint256 destinationChainId
     );
 
-    function createFlow(
+    function registerFlow(
+        address _reactiveContract,
         string memory _name,
         uint256 _originChainId,
         address _originContract,
-        uint256 _topic0,
         uint256 _destinationChainId,
         address _destinationContract,
         uint8 _conditionOp,
         uint256 _threshold,
-        uint8 _dataOffset,
-        uint8 _actionType,
-        bytes4 _callbackSelector,
-        uint256 _maxExecutions
-    ) external payable returns (address) {
-        ReactiveFlowEngine engine = new ReactiveFlowEngine{value: msg.value}(
-            _name,
-            _originChainId,
-            _originContract,
-            _topic0,
-            _destinationChainId,
-            _destinationContract,
-            _conditionOp,
-            _threshold,
-            _dataOffset,
-            _actionType,
-            _callbackSelector,
-            _maxExecutions
-        );
-
-        address engineAddr = address(engine);
-
+        uint8 _actionType
+    ) external {
         userFlows[msg.sender].push(FlowInfo({
-            reactiveContract: engineAddr,
+            reactiveContract: _reactiveContract,
             name: _name,
             originChainId: _originChainId,
             originContract: _originContract,
@@ -77,11 +58,9 @@ contract FlowRegistry {
         }));
 
         userFlowCount[msg.sender]++;
-        allFlows.push(engineAddr);
+        allFlows.push(_reactiveContract);
 
-        emit FlowCreated(msg.sender, engineAddr, _name, _originChainId, _destinationChainId);
-
-        return engineAddr;
+        emit FlowRegistered(msg.sender, _reactiveContract, _name, _originChainId, _destinationChainId);
     }
 
     function getUserFlows(address user) external view returns (FlowInfo[] memory) {

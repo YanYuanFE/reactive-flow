@@ -27,7 +27,10 @@ contract FlowDestination is AbstractCallback {
     AlertRecord[] public alerts;
     uint256 public alertCount;
 
-    constructor(address _callbackSender) AbstractCallback(_callbackSender) payable {}
+    constructor(address _callbackSender) AbstractCallback(_callbackSender) payable {
+        // Allow callbacks from any RVM (shared destination for multiple flows)
+        rvm_id = address(0);
+    }
 
     function alertCallback(
         address _rvmId,

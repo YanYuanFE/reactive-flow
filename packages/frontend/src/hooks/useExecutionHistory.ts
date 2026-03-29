@@ -1,6 +1,6 @@
 import { usePublicClient } from "wagmi";
 import { useQuery } from "@tanstack/react-query";
-import { parseAbiItem, type PublicClient } from "viem";
+import { parseAbiItem, type PublicClient, toHex, pad } from "viem";
 
 // ─── FlowDestination event ABIs ─────────────────────────────────────────────
 
@@ -39,9 +39,9 @@ export type ExecutionEvent = AlertEvent | GenericCallbackEvent;
 
 const CHUNK_SIZE = 9900n;
 
-async function batchGetLogs<T>(
+async function batchGetLogs(
   client: PublicClient,
-  params: { address: `0x${string}`; event: any; fromBlock: bigint; toBlock: bigint },
+  params: { address: `0x${string}`; event: any; fromBlock: bigint; toBlock: bigint; args?: any },
 ) {
   const results: any[] = [];
   for (let from = params.fromBlock; from <= params.toBlock; from += CHUNK_SIZE + 1n) {
@@ -52,11 +52,32 @@ async function batchGetLogs<T>(
   return results;
 }
 
+// ─── Estimate block number from timestamp ───────────────────────────────────
+
+/** Sepolia ~12s/block, Base Sepolia ~2s/block */
+function estimateBlocksFromTimestamp(
+  headBlock: bigint,
+  createdAtMs: number,
+  chainId: number,
+): bigint {
+  const nowMs = Date.now();
+  const ageSec = Math.max(0, (nowMs - createdAtMs) / 1000);
+  const blockTime = chainId === 84532 ? 2 : 12; // Base Sepolia vs Sepolia
+  const blocksAgo = BigInt(Math.ceil(ageSec / blockTime)) + 100n; // +100 buffer
+  return headBlock > blocksAgo ? headBlock - blocksAgo : 0n;
+}
+
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
+/**
+ * Reads execution history from FlowDestination contract.
+ * Filters AlertReceived events by topic1 == reactiveAddress (per-flow filtering).
+ */
 export function useExecutionHistory(
   destinationChainId?: number,
   destinationContract?: `0x${string}`,
+  createdAt?: number,
+  reactiveAddress?: `0x${string}`,
 ) {
   const client = usePublicClient({ chainId: destinationChainId });
 
@@ -66,18 +87,26 @@ export function useExecutionHistory(
     error,
     refetch,
   } = useQuery({
-    queryKey: ["executionHistory", destinationChainId, destinationContract],
+    queryKey: ["executionHistory", destinationChainId, destinationContract, createdAt, reactiveAddress],
     queryFn: async (): Promise<ExecutionEvent[]> => {
       if (!client || !destinationContract) return [];
 
       const headBlock = await client.getBlockNumber();
-      // Scan last ~100k blocks (~14 days on Sepolia)
-      const fromBlock = headBlock > 100000n ? headBlock - 100000n : 0n;
+
+      const fromBlock = createdAt && destinationChainId
+        ? estimateBlocksFromTimestamp(headBlock, createdAt, destinationChainId)
+        : (headBlock > 10000n ? headBlock - 10000n : 0n);
+
+      // Filter AlertReceived by topic1 = reactive contract address (uint256)
+      const alertArgs = reactiveAddress
+        ? { topic1: BigInt(reactiveAddress) }
+        : undefined;
 
       const [alertLogs, callbackLogs] = await Promise.all([
         batchGetLogs(client, {
           address: destinationContract,
           event: ALERT_RECEIVED_EVENT,
+          args: alertArgs,
           fromBlock,
           toBlock: headBlock,
         }),

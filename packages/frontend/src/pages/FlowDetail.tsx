@@ -47,6 +47,8 @@ export default function FlowDetail() {
   const { events, isLoading: eventsLoading } = useExecutionHistory(
     flow?.destinationChainId,
     flow?.destinationContract,
+    flow?.createdAt,
+    flow?.reactiveAddress,
   );
 
   // Token info for human-readable threshold display
@@ -239,7 +241,7 @@ export default function FlowDetail() {
             <div>
               <p className="text-sm text-muted-foreground">Executions</p>
               <p className="text-lg font-bold tabular-nums">
-                {events.length > 0 ? events.length : Number(flow.executionCount)}
+                {events.length}
               </p>
             </div>
             <div>
