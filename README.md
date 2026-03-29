@@ -8,27 +8,28 @@ ReactiveFlow is a no-code platform for creating cross-chain automated workflows 
 
 ## Architecture
 
-ReactiveFlow uses a **factory + three-role model**. The `FlowRegistry` factory contract deploys and registers `ReactiveFlowEngine` instances, each subscribing to origin chain events and emitting cross-chain callbacks.
+ReactiveFlow uses a **registry + EOA deploy model**. Users deploy `ReactiveFlowEngine` directly from their wallet (EOA), then register it in the `FlowRegistry` for indexing. Each engine subscribes to origin chain events and emits cross-chain callbacks.
 
 ```
                        Reactive Network (Lasna)
                     +--------------------------+
-                    |   FlowRegistry           |
-                    |     createFlow() ------+ |
-  Origin Chain      |                        v |      Destination Chain
+                    |   FlowRegistry (storage) |
+                    |     registerFlow()       |
+  Origin Chain      |                          |      Destination Chain
   (e.g. Sepolia)    |   ReactiveFlowEngine     |      (e.g. Base Sepolia)
- +-------------+    |                          |     +------------------+
- | Any ERC-20  |    |   subscribe(event)       |     | FlowDestination  |
- | or custom   |    |   react(log) {           |     |                  |
- | contract    |    |     evaluate condition   |     | callback()       |
- | emit event -+--->|     emit Callback -------+---->| alertCallback()  |
- |             |    |   }                      |     |                  |
- +-------------+    +--------------------------+     +------------------+
+ +-------------+    |   (EOA deployed)         |     +------------------+
+ | Any ERC-20  |    |                          |     | FlowDestination  |
+ | or custom   |    |   subscribe(event)       |     |   rvm_id=0x0     |
+ | contract    |    |   react(log) {           |     |                  |
+ | emit event -+--->|     evaluate condition   |     | alertCallback()  |
+ |             |    |     emit Callback -------+---->|   topic1=self    |
+ +-------------+    |   }                      |     |                  |
+                    +--------------------------+     +------------------+
 ```
 
 | Role | Contract | Chain | Purpose |
 |------|----------|-------|---------|
-| **Factory** | `FlowRegistry` | Reactive Lasna | Deploys & registers ReactiveFlowEngine instances, on-chain flow persistence |
+| **Registry** | `FlowRegistry` | Reactive Lasna | Stores flow metadata for on-chain indexing |
 | **Origin** | Any ERC-20 or custom contract | Any EVM chain | Emits trigger events (transfers, custom events) |
 | **Reactive** | `ReactiveFlowEngine` | Reactive Lasna | Subscribes to origin events, evaluates conditions, emits `Callback` |
 | **Destination** | `FlowDestination` | Any EVM chain | Receives and records callback execution results |
@@ -36,24 +37,32 @@ ReactiveFlow uses a **factory + three-role model**. The `FlowRegistry` factory c
 **How data flows:**
 
 1. User creates a Flow via the web UI (trigger + condition + action).
-2. Frontend calls `FlowRegistry.createFlow()` which deploys a new `ReactiveFlowEngine` and registers it on-chain -- **one transaction**.
-3. The engine subscribes to the specified origin chain event in its constructor.
-4. When the event fires on the origin chain, ReactVM calls `react()` with the log data.
-5. `react()` evaluates the condition (e.g., `amount >= threshold`) and emits a `Callback`.
-6. The Callback Proxy relays the call to `FlowDestination` on the destination chain.
+2. Frontend deploys `ReactiveFlowEngine` directly from the user's wallet (EOA) -- **transaction 1**.
+3. Frontend calls `FlowRegistry.registerFlow()` to store flow metadata on-chain -- **transaction 2**.
+4. The engine subscribes to the specified origin chain event in its constructor.
+5. When the event fires on the origin chain, ReactVM calls `react()` with the log data.
+6. `react()` evaluates the condition (e.g., `amount >= threshold`) and emits a `Callback` via `alertCallback`, encoding `address(this)` as `topic1` for per-flow identification.
+7. The Callback Proxy relays the call to `FlowDestination` on the destination chain.
+
+### Key Design Decisions
+
+- **EOA deployment (not factory):** Reactive Network's ReactVM activates within ~1 minute for EOA-deployed contracts, but factory-deployed contracts (via CREATE opcode) fail to activate. ReactiveFlowEngine must be deployed directly by the user's wallet.
+- **`rvm_id = address(0)` on FlowDestination:** The shared FlowDestination accepts callbacks from any RVM. Without this, `rvmIdOnly` would reject callbacks since the `_rvmId` (deployer address) differs from the FlowDestination's deployer.
+- **Per-flow event filtering via `topic1`:** Each ReactiveFlowEngine encodes `address(this)` into the `alertCallback`'s `topic1` parameter. The frontend filters `AlertReceived` events by `topic1 == flow.reactiveAddress` to isolate per-flow execution history.
 
 ---
 
 ## Features
 
 - **Visual Flow Builder** -- 4-step wizard: Trigger, Condition, Action, Review & Deploy
-- **On-chain flow persistence** -- FlowRegistry factory stores all flows on-chain, no localStorage needed
+- **Two-step deployment** -- Deploy ReactiveFlowEngine (EOA) + Register in FlowRegistry, with progress UI
+- **On-chain flow persistence** -- FlowRegistry stores all flow metadata on-chain
 - **Auto token detection** -- queries ERC-20 symbol & decimals on-chain, auto-converts threshold values
 - **Auto chain switching** -- wallet automatically switches to Reactive Lasna when deploying
 - **Cross-chain template library** -- pre-built flows for whale alerts, transfer monitors, event bridges
 - **Per-flow isolated reactive contracts** -- each Flow deploys its own `ReactiveFlowEngine` instance
 - **Configurable condition engine** -- 6 comparison operators (GT, LT, GTE, LTE, EQ, NEQ) with byte-offset data extraction
-- **Real-time execution tracking** -- on-chain execution counter and alert history from destination chain
+- **Per-flow execution tracking** -- execution history filtered by reactive contract address (`topic1`)
 - **Multi-chain support** -- Ethereum Sepolia and Base Sepolia as origin/destination chains
 
 ---
@@ -64,7 +73,7 @@ ReactiveFlow uses a **factory + three-role model**. The `FlowRegistry` factory c
 |-------|------------|
 | Smart Contracts | Solidity 0.8, Foundry, [reactive-lib](https://github.com/Reactive-Network/reactive-lib) |
 | Frontend | React 18, Vite, TailwindCSS, shadcn/ui, wagmi, RainbowKit |
-| Chain Interaction | viem, wagmi hooks, FlowRegistry factory contract |
+| Chain Interaction | viem, wagmi hooks, direct bytecode deployment + FlowRegistry |
 | Package Manager | pnpm (monorepo) |
 | Backend | **None** -- fully client-side + on-chain |
 
@@ -76,18 +85,18 @@ ReactiveFlow uses a **factory + three-role model**. The `FlowRegistry` factory c
 
 | Contract | Chain | Address |
 |----------|-------|---------|
-| FlowRegistry | Lasna | [`0x29362Bf6e28884fB186Ea5B49fE50Dba463Ea578`](https://lasna.reactscan.net/address/0x29362Bf6e28884fB186Ea5B49fE50Dba463Ea578) |
-| FlowOrigin | Sepolia | [`0x25859EF6b680249BD924F6F9716BA214A21F916c`](https://sepolia.etherscan.io/address/0x25859EF6b680249BD924F6F9716BA214A21F916c) |
-| FlowDestination | Sepolia | [`0x56dcB06691f37F21CbBF8Df9D6467a0536d0644f`](https://sepolia.etherscan.io/address/0x56dcB06691f37F21CbBF8Df9D6467a0536d0644f) |
-| FlowDestination | Base Sepolia | [`0x14C201065294464Aa74d66fAaAAcBBD726211B5e`](https://sepolia.basescan.org/address/0x14C201065294464Aa74d66fAaAAcBBD726211B5e) |
+| FlowRegistry | Lasna | [`0x8BDE9530910d448727f098A8847197146DEbeC5E`](https://lasna.reactscan.net/address/0x8BDE9530910d448727f098A8847197146DEbeC5E) |
+| FlowDestination | Sepolia | [`0x6A38462B4233708530f4bAc1339a7b5c16c3B635`](https://sepolia.etherscan.io/address/0x6A38462B4233708530f4bAc1339a7b5c16c3B635) |
+| FlowDestination | Base Sepolia | [`0x0B14eAdDAFA5E52a3e810E9CC27BA8721c8A971c`](https://sepolia.basescan.org/address/0x0B14eAdDAFA5E52a3e810E9CC27BA8721c8A971c) |
 
-### Verified Transactions (End-to-End)
+### Verified End-to-End Transactions
 
 | Step | Chain | Tx Hash |
 |------|-------|---------|
-| Origin Event (MOCA Transfer) | Sepolia | [`0x0fab03...`](https://sepolia.etherscan.io/tx/0x0fab03a0a03e8f56009cb429987511d164bb0a4a7fd0b784e0c3988fe4877064) |
-| FlowRegistry.createFlow | Lasna | [`0x008b1e...`](https://lasna.reactscan.net/tx/0x008b1efcc063602734361273e0bf92a7dd9c850f09b2160fb90c95007040cf6c) |
-| Destination Callback | Sepolia | [`0xc36226...`](https://sepolia.etherscan.io/tx/0xc3622621dac104abc2ac0d378fad91da59b1916b2fb993259c4027e8e3da2bc8) |
+| Deploy ReactiveFlowEngine (EOA) | Lasna | [`0xaeeac3...`](https://lasna.reactscan.net/tx/0xaeeac3427a2e29b171a5a7781cdc3d622217e9ca8ab9f308343242699da139f2) |
+| Register Flow | Lasna | [`0xedb73f...`](https://lasna.reactscan.net/tx/0xedb73f4c4839ac103f2bf1dd235675133e289908e3e4141ba70982450da35c4f) |
+| Origin Event (TUSD Transfer) | Sepolia | [`0x0721e0...`](https://sepolia.etherscan.io/tx/0x0721e0d7cbe20b0576c20fa187d87e81875171ec66791d6d6c8c38735afb207a) |
+| Destination Callback | Sepolia | [`0x5f9173...`](https://sepolia.etherscan.io/tx/0x5f9173bd01630ebe140cfbb15bc7bdab0684339b237efe5ddd597c27e3fb3e88) |
 
 ---
 
@@ -130,11 +139,11 @@ cp .env.example .env
 
 forge build
 
-# Deploy FlowRegistry (only needed once)
+# Deploy FlowRegistry (storage-only, once per network)
 forge create src/FlowRegistry.sol:FlowRegistry \
   --rpc-url $REACTIVE_RPC --private-key $PRIVATE_KEY --broadcast
 
-# Deploy FlowDestination on each destination chain
+# Deploy FlowDestination on each destination chain (rvm_id=0x0 for shared use)
 forge create src/FlowDestination.sol:FlowDestination \
   --rpc-url $SEPOLIA_RPC --private-key $PRIVATE_KEY --broadcast \
   --constructor-args $CALLBACK_PROXY_ADDR --value 0.01ether
@@ -156,12 +165,12 @@ Rate:   1 ETH = 100 lREACT
 ```
  User (Browser)                 Reactive Lasna              Origin / Destination Chains
  +--------------+               +------------------+        +------------------------+
- |              |  createFlow() |                  |        |                        |
- | Flow Builder +-------------->| FlowRegistry     |        |                        |
- | (wagmi)      |               |   |              |        |                        |
- |              |               |   v deploy       |        |                        |
- +--------------+               | ReactiveFlow-    |        |                        |
-                                | Engine           |        |                        |
+ |              | 1. deploy     |                  |        |                        |
+ | Flow Builder +--bytecode---->| ReactiveFlow-    |        |                        |
+ | (wagmi)      |               | Engine (EOA)     |        |                        |
+ |              | 2. register   |                  |        |                        |
+ |              +-------------->| FlowRegistry     |        |                        |
+ +--------------+               |   (storage)      |        |                        |
                                 |                  |        |                        |
                                 | subscribe(       |        |                        |
                                 |   chainId,       |        |                        |
@@ -175,18 +184,20 @@ Rate:   1 ETH = 100 lREACT
                                 |    condition     |        |                        |
                                 |           |      |        |                        |
                                 |           v      |        |                        |
-                                |    emit Callback +------->| Callback Proxy relays  |
+                                |  alertCallback   |        |                        |
+                                |  (topic1=self) --+------->| Callback Proxy relays  |
                                 |                  |        | to FlowDestination     |
                                 +------------------+        +------------------------+
 ```
 
 1. **Create** -- User designs a Flow via the web UI, selecting trigger event, condition, and action.
-2. **Deploy** -- Frontend calls `FlowRegistry.createFlow()` which deploys a `ReactiveFlowEngine` and registers the flow on-chain in one transaction.
-3. **Subscribe** -- On construction, the engine subscribes to the specified origin chain event.
-4. **React** -- When the subscribed event fires, ReactVM calls `react()` with the log data.
-5. **Evaluate** -- `react()` extracts a value from log data and evaluates it against the threshold.
-6. **Callback** -- If the condition passes, a `Callback` event is emitted targeting the destination.
-7. **Execute** -- The Callback Proxy relays the callback to `FlowDestination`.
+2. **Deploy** -- Frontend deploys `ReactiveFlowEngine` bytecode directly from the user's wallet (EOA). ReactVM activates within ~1 minute.
+3. **Register** -- Frontend calls `FlowRegistry.registerFlow()` to store flow metadata on-chain.
+4. **Subscribe** -- On construction, the engine subscribes to the specified origin chain event.
+5. **React** -- When the subscribed event fires, ReactVM calls `react()` with the log data.
+6. **Evaluate** -- `react()` extracts a value from log data and evaluates it against the threshold.
+7. **Callback** -- If the condition passes, `alertCallback` is called with `topic1 = address(this)` for per-flow identification.
+8. **Execute** -- The Callback Proxy relays the callback to `FlowDestination`.
 
 ---
 
@@ -194,34 +205,33 @@ Rate:   1 ETH = 100 lREACT
 
 ### FlowRegistry
 
-Factory contract deployed once on Lasna. Creates and registers all user flows on-chain.
+Storage-only registry deployed once on Lasna. Indexes all user flows on-chain.
 
-- `createFlow(...)` -- deploys a new `ReactiveFlowEngine` and stores flow metadata
+- `registerFlow(reactiveContract, name, ...)` -- stores flow metadata and emits `FlowRegistered`
 - `getUserFlows(address)` -- returns all flows created by a user
 - `getUserFlowCount(address)` -- returns flow count for a user
 - `getTotalFlows()` -- returns total flows across all users
 
 ### ReactiveFlowEngine
 
-The core reactive contract deployed per flow via FlowRegistry.
+The core reactive contract deployed per flow directly by the user's wallet (EOA).
 
 - **Condition operators:** `NONE`, `GT`, `LT`, `GTE`, `LTE`, `EQ`, `NEQ`
 - **Data extraction:** Configurable `dataOffset` to read any 32-byte word from event log data
 - **Execution limits:** Optional `maxExecutions` cap (0 = unlimited)
-- **Action types:** `ALERT` (simple callback) or `GENERIC_CALLBACK` (custom selector)
+- **Callback format:** Uses `alertCallback(address, uint256, uint256, bytes)` with `topic1 = address(this)` for per-flow event filtering
+- **Gas limit:** 1,000,000 per callback
 
 ### FlowDestination
 
-Callback receiver deployed on destination chains:
+Shared callback receiver deployed on destination chains. Sets `rvm_id = address(0)` to accept callbacks from any RVM.
 
-- `callback(address)` -- simple alert (Basic Demo compatible)
-- `alertCallback(rvmId, topic1, topic2, data)` -- structured alert with full data
+- `alertCallback(rvmId, topic1, topic2, data)` -- structured alert with per-flow identification via `topic1`
 - `genericCallback(rvmId, topic1, topic2, data)` -- generic execution callback
+- `callback(address)` -- simple alert (Basic Demo compatible)
 - `getRecentAlerts(count)` -- query recent alert history
 
 ### Test Suite
-
-26 unit tests covering the condition evaluation engine:
 
 ```bash
 cd packages/contracts
@@ -248,31 +258,24 @@ reactive-hackathon/
 ├── packages/
 │   ├── contracts/                  # Foundry project
 │   │   ├── src/
-│   │   │   ├── FlowRegistry.sol        # Factory: deploy + register flows
+│   │   │   ├── FlowRegistry.sol        # Storage-only: register flows
 │   │   │   ├── ReactiveFlowEngine.sol   # Core reactive contract (Lasna)
 │   │   │   ├── FlowOrigin.sol           # Event emitter (origin chains)
 │   │   │   └── FlowDestination.sol      # Callback receiver (dest chains)
 │   │   ├── test/
-│   │   │   └── ReactiveFlowEngine.t.sol # 26 unit tests
-│   │   ├── script/
-│   │   │   ├── DeployRegistry.s.sol     # Registry deploy script
-│   │   │   ├── DeployOrigin.s.sol       # Origin deploy script
-│   │   │   ├── DeployDestination.s.sol  # Destination deploy script
-│   │   │   ├── DeployReactive.s.sol     # Reactive deploy script
-│   │   │   ├── TriggerDemo.s.sol        # Demo trigger script
-│   │   │   └── deploy-demo.sh           # Full end-to-end deployment
 │   │   └── lib/
 │   │       └── reactive-lib/            # Reactive Network base contracts
 │   └── frontend/                   # React + Vite app
 │       └── src/
 │           ├── config/
 │           │   ├── contracts.ts         # Chain IDs, ABIs, addresses
+│           │   ├── bytecode.ts          # ReactiveFlowEngine compiled bytecode
 │           │   ├── templates.ts         # Flow template definitions
 │           │   └── wagmi.ts             # Wallet config (Sepolia, Base Sepolia, Lasna)
 │           ├── hooks/
-│           │   ├── useDeployFlow.ts      # Call FlowRegistry.createFlow()
+│           │   ├── useDeployFlow.ts      # Two-step: deploy bytecode + register
 │           │   ├── useUserFlows.ts       # Read flows from FlowRegistry on-chain
-│           │   ├── useExecutionHistory.ts # Read alerts from destination chain
+│           │   ├── useExecutionHistory.ts # Per-flow filtered alerts (topic1)
 │           │   └── useTokenInfo.ts       # Auto-detect ERC-20 symbol & decimals
 │           ├── pages/
 │           │   ├── Landing.tsx           # Landing page
