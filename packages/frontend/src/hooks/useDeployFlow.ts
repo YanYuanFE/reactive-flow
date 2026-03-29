@@ -108,10 +108,11 @@ export function useDeployFlow() {
           ],
         });
 
-        const deployHash = await walletClient.sendTransaction({
+        const wc = walletClient!;
+        const deployHash = await (wc as any).sendTransaction({
           data: deployData,
           value: parseEther("0.1"),
-          chain: walletClient.chain,
+          chain: wc.chain,
         });
         setTxHash(deployHash);
         setStep("deploy_confirming");
@@ -129,7 +130,7 @@ export function useDeployFlow() {
 
         // Step 2: Register in FlowRegistry
         setStep("registering");
-        const regHash = await walletClient.writeContract({
+        const regHash = await (wc as any).writeContract({
           address: FLOW_REGISTRY_ADDRESS,
           abi: FLOW_REGISTRY_ABI,
           functionName: "registerFlow",
@@ -144,7 +145,7 @@ export function useDeployFlow() {
             params.threshold,
             params.actionType,
           ],
-          chain: walletClient.chain,
+          chain: wc.chain,
         });
         setRegisterTxHash(regHash);
         setStep("register_confirming");
