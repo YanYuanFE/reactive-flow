@@ -76,15 +76,15 @@ export function useUserFlows() {
     }));
   }, [flowsData]);
 
-  // Batch read executionCount + maxExecutions for each flow
+  // Batch read alertCount from Destination contracts + maxExecutions from Reactive contracts
   const contractCalls = useMemo(
     () =>
       storedFlows.flatMap((f) => [
         {
-          address: f.reactiveAddress,
-          abi: REACTIVE_FLOW_ENGINE_ABI,
-          functionName: "executionCount" as const,
-          chainId: REACTIVE_LASNA_CHAIN_ID,
+          address: f.destinationContract,
+          abi: [{ name: "alertCount", type: "function", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] }] as const,
+          functionName: "alertCount" as const,
+          chainId: f.destinationChainId,
         },
         {
           address: f.reactiveAddress,
@@ -107,12 +107,12 @@ export function useUserFlows() {
   // Merge execution data into flows
   const flows: Flow[] = useMemo(() => {
     return storedFlows.map((f, i) => {
-      const execResult = execData?.[i * 2];
+      const alertResult = execData?.[i * 2];
       const maxResult = execData?.[i * 2 + 1];
 
       const executionCount =
-        execResult?.status === "success"
-          ? (execResult.result as bigint)
+        alertResult?.status === "success"
+          ? (alertResult.result as bigint)
           : 0n;
 
       const maxExecutions =

@@ -239,7 +239,7 @@ export default function FlowDetail() {
             <div>
               <p className="text-sm text-muted-foreground">Executions</p>
               <p className="text-lg font-bold tabular-nums">
-                {Number(flow.executionCount)}
+                {events.length > 0 ? events.length : Number(flow.executionCount)}
               </p>
             </div>
             <div>
